@@ -1,13 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 export default async (req) => {
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
   };
 
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers });
@@ -19,24 +13,38 @@ export default async (req) => {
     name = body.name;
     category = body.category || "otros";
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+    return new Response(JSON.stringify({ imageUrl: null }), { status: 200, headers });
   }
 
   if (!name) return new Response(JSON.stringify({ imageUrl: null }), { status: 200, headers });
 
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_API_KEY) return new Response(JSON.stringify({ imageUrl: null, error: "No API key" }), { status: 200, headers });
+
   try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      messages: [{
-        role: "user",
-        content: `Find a product image for: "${name}". Search and return ONLY the direct image URL (must end in .jpg .jpeg .png or .webp). No explanation, just the URL.`
-      }]
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "web-search-2025-03-05",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{
+          role: "user",
+          content: `Find a product image for: "${name}". Return ONLY the direct image URL ending in .jpg .png or .webp. Nothing else.`
+        }]
+      })
     });
 
+    const data = await response.json();
     let imageUrl = null;
-    for (const block of (response.content || [])) {
+
+    for (const block of (data.content || [])) {
       if (block.type === "text") {
         const m = block.text.match(/https?:\/\/[^\s<>"']+\.(?:jpg|jpeg|png|webp)(?:\?[^\s]*)?/i);
         if (m) { imageUrl = m[0].replace(/[,.)>]+$/, ""); break; }
